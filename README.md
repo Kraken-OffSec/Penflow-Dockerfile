@@ -159,17 +159,23 @@ docker rm penflow-container
 By default, data is stored inside the container and will be lost when the container is removed. To persist data:
 
 ```bash
-docker run -d \
-  --name penflow-container \
-  --privileged \
-  -p 5173:5173 \
-  -p 8000:8000 \
-  -p 7474:7474 \
-  -p 7687:7687 \
-  -p 6379:6379 \
-  -p 8081:8081 \
-  -v penflow-neo4j-data:/home/penflow/penflow/neo4j-data-dev \
-  -v penflow-redis-data:/home/penflow/penflow/redis-data-dev \
+   docker run
+     -d
+     --name='PenFlow' \
+     --net='interface' \
+     --ip='192.168.0.1' \
+     --pids-limit 2048 \
+     -e TZ="America/New_York" \
+     -e HOST_HOSTNAME="Hostname" \
+     -e HOST_CONTAINERNAME="PenFlow" \
+     -e 'ADMIN_USERNAME'='admin' \
+     -e 'ADMIN_EMAIL'='admin@krakensec.tech' \
+     -e 'ADMIN_PASSWORD'='Password123!' \
+     -e 'SECRET_KEY'='secret-key-change-me' \ 
+     -e 'HOST_PORT'='80' \
+     -e 'HOST_IP'='192.168.70.114' \
+     -v penflow-neo4j-data:/home/penflow/penflow/neo4j-data-dev \
+     -v penflow-redis-data:/home/penflow/penflow/redis-data-dev \
   penflow
 ```
 
