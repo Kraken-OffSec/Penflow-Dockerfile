@@ -34,14 +34,23 @@ PenFlow is a mind-mapping platform designed specifically for cybersecurity profe
 
 2. **Run the container:**
    ```bash
-   docker run -d \
-     --name penflow-container \
-     -p 5173:5173 \
-     -p 8000:8000 \
-     -p 7474:7474 \
-     -p 7687:7687 \
-     -p 6379:6379 \
-     penflow
+   docker run
+     -d
+     --name='PenFlow'
+     --net='br0'
+     --ip='192.168.70.114'
+     --pids-limit 2048
+     -e TZ="America/New_York"
+     -e HOST_OS="Unraid"
+     -e HOST_HOSTNAME="KrakenTower"
+     -e HOST_CONTAINERNAME="PenFlow"
+     -e 'ADMIN_USERNAME'='ar1ste1a'
+     -e 'ADMIN_EMAIL'='ehosinski@krakensec.tech'
+     -e 'ADMIN_PASSWORD'='xFWx8Ma$54%gZ^cq'
+     -e 'SECRET_KEY'='Dx^6&NPz7MCvRjANk&gz*eD$8hChGQd^'
+     -e 'FRONTEND_URL'='http://192.168.70.32:28080'
+     -e 'HOST_PORT'='80'
+     -e 'HOST_IP'='192.168.70.114'
    ```
 
    **Note:** No `--privileged` flag needed! This container runs all services directly without Docker-in-Docker.
