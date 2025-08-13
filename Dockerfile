@@ -3,6 +3,13 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Environment variables with defaults
+ENV ADMIN_USERNAME='penflow'
+ENV ADMIN_EMAIL='penflow@krakensec.tech'
+ENV ADMIN_PASSWORD='password'
+ENV SECRET_KEY='secret-key-change-in-production'
+ENV FRONTEND_URL="http://192.168.70.66:80"
+
 # Install all required dependencies
 RUN apt-get update && apt-get install -y \
     curl \
@@ -53,14 +60,19 @@ WORKDIR /home/penflow/penflow/frontend
 RUN pnpm install --frozen-lockfile && \
     pnpm build
 
-# Copy built frontend to nginx directory
-RUN cp -r dist/* /var/www/html/
+# Create data directories for persistence
+RUN mkdir -p /data/frontend /data/backend /data/uploads /data/config && \
+    chown -R penflow:penflow /data
+
+# Copy built frontend to nginx directory and data directory
+RUN cp -r dist/* /var/www/html/ && \
+    cp -r dist/* /data/frontend/
 
 # Create nginx config with CORS support
 RUN echo 'server {' > /etc/nginx/sites-available/penflow && \
     echo '    listen 80;' >> /etc/nginx/sites-available/penflow && \
     echo '    server_name localhost;' >> /etc/nginx/sites-available/penflow && \
-    echo '    root /var/www/html;' >> /etc/nginx/sites-available/penflow && \
+    echo '    root /data/frontend;' >> /etc/nginx/sites-available/penflow && \
     echo '    index index.html;' >> /etc/nginx/sites-available/penflow && \
     echo '    ' >> /etc/nginx/sites-available/penflow && \
     echo '    # Add CORS headers for all requests' >> /etc/nginx/sites-available/penflow && \
@@ -163,13 +175,64 @@ RUN echo '#!/bin/bash' > /home/penflow/create-user.sh && \
     echo 'set -a' >> /home/penflow/create-user.sh && \
     echo 'source .env' >> /home/penflow/create-user.sh && \
     echo 'set +a' >> /home/penflow/create-user.sh && \
-    echo 'python3 create_user.py create admin admin@yourcompany.com' >> /home/penflow/create-user.sh && \
+    echo 'if [ -n "$ADMIN_PASSWORD" ]; then' >> /home/penflow/create-user.sh && \
+    echo '  python3 create_user.py create "$ADMIN_USERNAME" "$ADMIN_EMAIL" "$ADMIN_PASSWORD"' >> /home/penflow/create-user.sh && \
+    echo 'else' >> /home/penflow/create-user.sh && \
+    echo '  python3 create_user.py create "$ADMIN_USERNAME" "$ADMIN_EMAIL"' >> /home/penflow/create-user.sh && \
+    echo 'fi' >> /home/penflow/create-user.sh && \
     chmod +x /home/penflow/create-user.sh && \
     chown penflow:penflow /home/penflow/create-user.sh
 
 # Expose ports
 EXPOSE 80 8000 7474 7687 6379
 
-# Start supervisor
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
+# Create startup script that handles environment variables
+RUN echo '#!/bin/bash' > /start-penflow.sh && \
+    echo 'echo "Starting PenFlow with configuration:"' >> /start-penflow.sh && \
+    echo 'echo "Admin Username: $ADMIN_USERNAME"' >> /start-penflow.sh && \
+    echo 'echo "Admin Email: $ADMIN_EMAIL"' >> /start-penflow.sh && \
+    echo 'echo "Frontend URL: $FRONTEND_URL"' >> /start-penflow.sh && \
+    echo '' >> /start-penflow.sh && \
+
+    echo '' >> /start-penflow.sh && \
+    echo '# Ensure data directories exist and copy defaults if needed' >> /start-penflow.sh && \
+    echo 'if [ ! -f /data/frontend/index.html ]; then' >> /start-penflow.sh && \
+    echo '  echo "Copying default frontend files..."' >> /start-penflow.sh && \
+    echo '  cp -r /var/www/html/* /data/frontend/' >> /start-penflow.sh && \
+    echo 'fi' >> /start-penflow.sh && \
+    echo '' >> /start-penflow.sh && \
+    echo '# Update backend .env with dynamic values' >> /start-penflow.sh && \
+    echo 'if [ ! -f /data/config/.env ]; then' >> /start-penflow.sh && \
+    echo '  echo "Creating new .env file..."' >> /start-penflow.sh && \
+    echo '  cat > /data/config/.env << EOF' >> /start-penflow.sh && \
+    echo 'NEO4J_URI=bolt://localhost:7687' >> /start-penflow.sh && \
+    echo 'NEO4J_USER=neo4j' >> /start-penflow.sh && \
+    echo 'NEO4J_PASSWORD=password' >> /start-penflow.sh && \
+    echo 'NEO4J_DATABASE=neo4j' >> /start-penflow.sh && \
+    echo 'REDIS_URL=redis://localhost:6379' >> /start-penflow.sh && \
+    echo 'SECRET_KEY="$SECRET_KEY"' >> /start-penflow.sh && \
+    echo 'ALGORITHM=HS256' >> /start-penflow.sh && \
+    echo 'ACCESS_TOKEN_EXPIRE_MINUTES=11520' >> /start-penflow.sh && \
+    echo 'GOOGLE_API_KEY=' >> /start-penflow.sh && \
+    echo 'BACKEND_CORS_ORIGINS=[\"*\"]' >> /start-penflow.sh && \
+    echo 'PROJECT_NAME=PenFlow' >> /start-penflow.sh && \
+    echo 'API_V1_STR=/api/v1' >> /start-penflow.sh && \
+    echo 'ENABLE_REGISTRATION=false' >> /start-penflow.sh && \
+    echo 'EOF' >> /start-penflow.sh && \
+    echo '  chown penflow:penflow /data/config/.env' >> /start-penflow.sh && \
+    echo 'else' >> /start-penflow.sh && \
+    echo '  echo "Using existing .env file..."' >> /start-penflow.sh && \
+    echo 'fi' >> /start-penflow.sh && \
+    echo '' >> /start-penflow.sh && \
+    echo '# Create symlink from app directory to config' >> /start-penflow.sh && \
+    echo 'ln -sf /data/config/.env /home/penflow/penflow/backend/.env' >> /start-penflow.sh && \
+    echo '' >> /start-penflow.sh && \
+
+    echo '' >> /start-penflow.sh && \
+    echo '# Start supervisor' >> /start-penflow.sh && \
+    echo 'exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf' >> /start-penflow.sh && \
+    chmod +x /start-penflow.sh
+
+# Start with dynamic configuration script
+CMD ["/start-penflow.sh"]
 
