@@ -8,7 +8,8 @@ ENV ADMIN_USERNAME='penflow'
 ENV ADMIN_EMAIL='penflow@krakensec.tech'
 ENV ADMIN_PASSWORD='password'
 ENV SECRET_KEY='secret-key-change-in-production'
-ENV FRONTEND_URL="http://192.168.70.66:80"
+ENV HOST_IP="192.168.70.32"
+ENV HOST_PORT="28080"
 
 # Install all required dependencies
 RUN apt-get update && apt-get install -y \
@@ -47,18 +48,28 @@ RUN sed -i 's/#dbms.default_listen_address=0.0.0.0/dbms.default_listen_address=0
 # Create penflow user
 RUN useradd -m -s /bin/bash penflow
 
-# Clone PenFlow repository
+# Clone PenFlow repository (using Kraken-OffSec fork with CORS fixes)
 WORKDIR /home/penflow
-RUN git clone https://github.com/rb-x/penflow.git penflow && \
-    chown -R penflow:penflow /home/penflow
+RUN git clone https://github.com/Kraken-OffSec/penflow.git penflow && \
+    chown -R penflow:penflow /home/penflow && \
+    echo "Cloned at: $(date)" && \
+    cat /home/penflow/penflow/frontend/src/config/env.ts
 
 # Install Python dependencies
 RUN pip3 install fastapi uvicorn[standard] neo4j redis python-multipart python-dotenv pydantic-settings passlib[bcrypt] python-jose pydantic[email] httpx cryptography google-generativeai
 
-# Build frontend
+# Build frontend with forced relative URLs
 WORKDIR /home/penflow/penflow/frontend
-RUN pnpm install --frozen-lockfile && \
-    pnpm build
+RUN rm -rf node_modules dist .vite && \
+    pnpm install --frozen-lockfile && \
+    echo "SOURCE CODE BEFORE BUILD:" && \
+    cat src/config/env.ts && \
+    echo "BUILDING WITH FORCED ENV VAR..." && \
+    VITE_API_BASE_URL="/api/v1" NODE_ENV=production pnpm build && \
+    echo "CHECKING IF RELATIVE URL IS IN BUILD:" && \
+    grep -r '"/api/v1"' dist/ || echo "RELATIVE URL NOT FOUND" && \
+    echo "CHECKING FOR WINDOW.LOCATION IN BUILD:" && \
+    grep -c 'window\.location' dist/assets/*.js || echo "NO WINDOW.LOCATION FOUND"
 
 # Create data directories for persistence
 RUN mkdir -p /data/frontend /data/backend /data/uploads /data/config && \
@@ -70,30 +81,35 @@ RUN cp -r dist/* /var/www/html/ && \
 
 # Create nginx config with CORS support
 RUN echo 'server {' > /etc/nginx/sites-available/penflow && \
-    echo '    listen 80;' >> /etc/nginx/sites-available/penflow && \
+    echo '    listen HOST_PORT_PLACEHOLDER;' >> /etc/nginx/sites-available/penflow && \
     echo '    server_name localhost;' >> /etc/nginx/sites-available/penflow && \
-    echo '    root /data/frontend;' >> /etc/nginx/sites-available/penflow && \
+    echo '    root /var/www/html;' >> /etc/nginx/sites-available/penflow && \
     echo '    index index.html;' >> /etc/nginx/sites-available/penflow && \
     echo '    ' >> /etc/nginx/sites-available/penflow && \
-    echo '    # Add CORS headers for all requests' >> /etc/nginx/sites-available/penflow && \
-    echo '    add_header Access-Control-Allow-Origin "*" always;' >> /etc/nginx/sites-available/penflow && \
-    echo '    add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;' >> /etc/nginx/sites-available/penflow && \
-    echo '    add_header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization" always;' >> /etc/nginx/sites-available/penflow && \
-    echo '    ' >> /etc/nginx/sites-available/penflow && \
-    echo '    # Handle preflight requests' >> /etc/nginx/sites-available/penflow && \
-    echo '    location ~ ^/api/ {' >> /etc/nginx/sites-available/penflow && \
+    echo '    location /api/ {' >> /etc/nginx/sites-available/penflow && \
+    echo '        add_header Access-Control-Allow-Origin "http://HOST_IP_PLACEHOLDER:HOST_PORT_PLACEHOLDER" always;' >> /etc/nginx/sites-available/penflow && \
+    echo '        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;' >> /etc/nginx/sites-available/penflow && \
+    echo '        add_header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization" always;' >> /etc/nginx/sites-available/penflow && \
     echo '        if ($request_method = OPTIONS) {' >> /etc/nginx/sites-available/penflow && \
-    echo '            add_header Access-Control-Allow-Origin "*";' >> /etc/nginx/sites-available/penflow && \
-    echo '            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";' >> /etc/nginx/sites-available/penflow && \
-    echo '            add_header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization";' >> /etc/nginx/sites-available/penflow && \
-    echo '            add_header Content-Length 0;' >> /etc/nginx/sites-available/penflow && \
-    echo '            add_header Content-Type text/plain;' >> /etc/nginx/sites-available/penflow && \
     echo '            return 200;' >> /etc/nginx/sites-available/penflow && \
     echo '        }' >> /etc/nginx/sites-available/penflow && \
-    echo '        proxy_pass http://localhost:8000;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_pass http://localhost:8000/api/;' >> /etc/nginx/sites-available/penflow && \
     echo '        proxy_set_header Host $host;' >> /etc/nginx/sites-available/penflow && \
     echo '        proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/sites-available/penflow && \
     echo '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/sites-available/penflow && \
+    echo '    }' >> /etc/nginx/sites-available/penflow && \
+    echo '    ' >> /etc/nginx/sites-available/penflow && \
+    echo '    # WebSocket proxy configuration' >> /etc/nginx/sites-available/penflow && \
+    echo '    location /ws/ {' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_pass http://localhost:8000/ws/;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_http_version 1.1;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_set_header Upgrade $http_upgrade;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_set_header Connection "upgrade";' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_set_header Host $host;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_cache_bypass $http_upgrade;' >> /etc/nginx/sites-available/penflow && \
     echo '    }' >> /etc/nginx/sites-available/penflow && \
     echo '    ' >> /etc/nginx/sites-available/penflow && \
     echo '    location / {' >> /etc/nginx/sites-available/penflow && \
@@ -183,17 +199,21 @@ RUN echo '#!/bin/bash' > /home/penflow/create-user.sh && \
     chmod +x /home/penflow/create-user.sh && \
     chown penflow:penflow /home/penflow/create-user.sh
 
-# Expose ports
-EXPOSE 80 8000 7474 7687 6379
+# Expose ports (HOST_PORT will be configured at runtime)
+EXPOSE 80 28080 8000 7474 7687 6379
 
 # Create startup script that handles environment variables
 RUN echo '#!/bin/bash' > /start-penflow.sh && \
     echo 'echo "Starting PenFlow with configuration:"' >> /start-penflow.sh && \
     echo 'echo "Admin Username: $ADMIN_USERNAME"' >> /start-penflow.sh && \
     echo 'echo "Admin Email: $ADMIN_EMAIL"' >> /start-penflow.sh && \
-    echo 'echo "Frontend URL: $FRONTEND_URL"' >> /start-penflow.sh && \
+    echo 'echo "Host IP: $HOST_IP"' >> /start-penflow.sh && \
+    echo 'echo "Host Port: $HOST_PORT"' >> /start-penflow.sh && \
     echo '' >> /start-penflow.sh && \
-
+    echo '# Update nginx configuration with dynamic IP and port' >> /start-penflow.sh && \
+    echo 'sed -i "s|HOST_IP_PLACEHOLDER|$HOST_IP|g" /etc/nginx/sites-available/penflow' >> /start-penflow.sh && \
+    echo 'sed -i "s|HOST_PORT_PLACEHOLDER|$HOST_PORT|g" /etc/nginx/sites-available/penflow' >> /start-penflow.sh && \
+    echo '' >> /start-penflow.sh && \
     echo '' >> /start-penflow.sh && \
     echo '# Ensure data directories exist and copy defaults if needed' >> /start-penflow.sh && \
     echo 'if [ ! -f /data/frontend/index.html ]; then' >> /start-penflow.sh && \
@@ -227,7 +247,6 @@ RUN echo '#!/bin/bash' > /start-penflow.sh && \
     echo '# Create symlink from app directory to config' >> /start-penflow.sh && \
     echo 'ln -sf /data/config/.env /home/penflow/penflow/backend/.env' >> /start-penflow.sh && \
     echo '' >> /start-penflow.sh && \
-
     echo '' >> /start-penflow.sh && \
     echo '# Start supervisor' >> /start-penflow.sh && \
     echo 'exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf' >> /start-penflow.sh && \
