@@ -48,15 +48,15 @@ RUN git clone https://github.com/rb-x/penflow.git penflow && \
 # Install Python dependencies
 RUN pip3 install fastapi uvicorn[standard] neo4j redis python-multipart python-dotenv pydantic-settings passlib[bcrypt] python-jose pydantic[email] httpx cryptography google-generativeai
 
-# Build frontend exactly like production
+# Build frontend
 WORKDIR /home/penflow/penflow/frontend
 RUN pnpm install --frozen-lockfile && \
     pnpm build
 
-# Copy built frontend to nginx directory (like production)
+# Copy built frontend to nginx directory
 RUN cp -r dist/* /var/www/html/
 
-# Create nginx config that matches production
+# Create nginx config
 RUN echo 'server {' > /etc/nginx/sites-available/penflow && \
     echo '    listen 80;' >> /etc/nginx/sites-available/penflow && \
     echo '    server_name localhost;' >> /etc/nginx/sites-available/penflow && \
