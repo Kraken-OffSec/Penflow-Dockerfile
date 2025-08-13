@@ -1,4 +1,4 @@
-# PenFlow All-in-One Container - Replicates ./run.sh prod in single container
+# PenFlow All-in-One Container
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -56,19 +56,36 @@ RUN pnpm install --frozen-lockfile && \
 # Copy built frontend to nginx directory
 RUN cp -r dist/* /var/www/html/
 
-# Create nginx config
+# Create nginx config with CORS support
 RUN echo 'server {' > /etc/nginx/sites-available/penflow && \
     echo '    listen 80;' >> /etc/nginx/sites-available/penflow && \
     echo '    server_name localhost;' >> /etc/nginx/sites-available/penflow && \
     echo '    root /var/www/html;' >> /etc/nginx/sites-available/penflow && \
     echo '    index index.html;' >> /etc/nginx/sites-available/penflow && \
-    echo '    location / {' >> /etc/nginx/sites-available/penflow && \
-    echo '        try_files $uri $uri/ /index.html;' >> /etc/nginx/sites-available/penflow && \
-    echo '    }' >> /etc/nginx/sites-available/penflow && \
-    echo '    location /api/ {' >> /etc/nginx/sites-available/penflow && \
-    echo '        proxy_pass http://localhost:8000/api/;' >> /etc/nginx/sites-available/penflow && \
+    echo '    ' >> /etc/nginx/sites-available/penflow && \
+    echo '    # Add CORS headers for all requests' >> /etc/nginx/sites-available/penflow && \
+    echo '    add_header Access-Control-Allow-Origin "*" always;' >> /etc/nginx/sites-available/penflow && \
+    echo '    add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;' >> /etc/nginx/sites-available/penflow && \
+    echo '    add_header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization" always;' >> /etc/nginx/sites-available/penflow && \
+    echo '    ' >> /etc/nginx/sites-available/penflow && \
+    echo '    # Handle preflight requests' >> /etc/nginx/sites-available/penflow && \
+    echo '    location ~ ^/api/ {' >> /etc/nginx/sites-available/penflow && \
+    echo '        if ($request_method = OPTIONS) {' >> /etc/nginx/sites-available/penflow && \
+    echo '            add_header Access-Control-Allow-Origin "*";' >> /etc/nginx/sites-available/penflow && \
+    echo '            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";' >> /etc/nginx/sites-available/penflow && \
+    echo '            add_header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization";' >> /etc/nginx/sites-available/penflow && \
+    echo '            add_header Content-Length 0;' >> /etc/nginx/sites-available/penflow && \
+    echo '            add_header Content-Type text/plain;' >> /etc/nginx/sites-available/penflow && \
+    echo '            return 200;' >> /etc/nginx/sites-available/penflow && \
+    echo '        }' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_pass http://localhost:8000;' >> /etc/nginx/sites-available/penflow && \
     echo '        proxy_set_header Host $host;' >> /etc/nginx/sites-available/penflow && \
     echo '        proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/sites-available/penflow && \
+    echo '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/sites-available/penflow && \
+    echo '    }' >> /etc/nginx/sites-available/penflow && \
+    echo '    ' >> /etc/nginx/sites-available/penflow && \
+    echo '    location / {' >> /etc/nginx/sites-available/penflow && \
+    echo '        try_files $uri $uri/ /index.html;' >> /etc/nginx/sites-available/penflow && \
     echo '    }' >> /etc/nginx/sites-available/penflow && \
     echo '}' >> /etc/nginx/sites-available/penflow && \
     ln -s /etc/nginx/sites-available/penflow /etc/nginx/sites-enabled/ && \
