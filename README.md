@@ -37,18 +37,16 @@ PenFlow is a mind-mapping platform designed specifically for cybersecurity profe
    docker run
      -d
      --name='PenFlow'
-     --net='br0'
-     --ip='192.168.70.114'
+     --net='interface'
+     --ip='192.168.0.1'
      --pids-limit 2048
      -e TZ="America/New_York"
-     -e HOST_OS="Unraid"
-     -e HOST_HOSTNAME="KrakenTower"
+     -e HOST_HOSTNAME="Hostname"
      -e HOST_CONTAINERNAME="PenFlow"
-     -e 'ADMIN_USERNAME'='ar1ste1a'
-     -e 'ADMIN_EMAIL'='ehosinski@krakensec.tech'
-     -e 'ADMIN_PASSWORD'='xFWx8Ma$54%gZ^cq'
-     -e 'SECRET_KEY'='Dx^6&NPz7MCvRjANk&gz*eD$8hChGQd^'
-     -e 'FRONTEND_URL'='http://192.168.70.32:28080'
+     -e 'ADMIN_USERNAME'='admin'
+     -e 'ADMIN_EMAIL'='admin@krakensec.tech'
+     -e 'ADMIN_PASSWORD'='Password123!'
+     -e 'SECRET_KEY'='secret-key-change-me'
      -e 'HOST_PORT'='80'
      -e 'HOST_IP'='192.168.70.114'
    ```
